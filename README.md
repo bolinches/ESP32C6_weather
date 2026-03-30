@@ -12,6 +12,7 @@ The firmware includes a non-blocking command processor accessible via the Arduin
 | `status` | Probes network routing, DNS, and NVS capacity |
 | `version` | Prints firmware version |
 | `heartbeat` | Outputs RSSI, CPU temp, heap, scheduling metrics, and uptime |
+| `alerts` | Prints active weather alerts to the console |
 | `recover` | Forces tiered network recovery sequence |
 | `ota [force]` | Checks and applies OTA (`force` bypasses version check) |
 | `weather` | Forces immediate API fetch and UI refresh |
@@ -19,6 +20,7 @@ The firmware includes a non-blocking command processor accessible via the Arduin
 | `heap` | Displays free heap memory |
 | `nvram` | Dumps stored preferences (excludes passwords) |
 | `addwifi` | Syntax: `addwifi [ssid] [pass]` (Adds/updates WiFi slot) |
+| `rmwifi` | Syntax: `rmwifi [slot]` (Removes a WiFi profile from NVS) |
 | `reset` | Wipes NVRAM and executes hardware reboot |
 | `dim` | Overrides backlight to night threshold |
 | `bright` | Overrides backlight to day threshold |

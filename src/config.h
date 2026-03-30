@@ -1,6 +1,6 @@
 #pragma once
 
-#define CURRENT_VERSION "1.6"
+#define CURRENT_VERSION "1.7"
 
 const char* ntpServer = "pool.ntp.org";
 

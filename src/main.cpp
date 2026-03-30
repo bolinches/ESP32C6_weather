@@ -41,6 +41,7 @@ String tzInfo = "";
 String ianaTz = "";
 String region = "";
 String tempUnit = "C";
+String owmIp = "";
 String apiVer = "3.0";
 
 unsigned long lastOTACheck = 0;
@@ -312,8 +313,10 @@ void loadPreferences() {
   tzInfo = prefs.getString("tz", "EET-2EEST,M3.5.0/3,M10.5.0/4");
   ianaTz = prefs.getString("iana_tz", "");
   apiVer = prefs.getString("api_ver", "3.0");
+  owmIp = prefs.getString("owm_ip", "");
   tempUnit = prefs.getString("unit", "C");
   logMsg("NVRAM: Loaded API Target: v" + apiVer);
+  if (owmIp != "") logMsg("NVRAM: Cached OWM IP: " + owmIp);
 }
 
 bool connectTargetedWiFi() {
@@ -591,6 +594,14 @@ bool runDeepProbe() {
   logMsg("PROBE: Executing network diagnostics...");
   IPAddress p1, p2, p3;
   bool d1 = WiFi.hostByName("api.openweathermap.org", p1);
+  if (d1) {
+    String newIp = p1.toString();
+    if (newIp != "0.0.0.0" && newIp != owmIp) {
+      logMsg("PROBE: OpenWeatherMap IP resolved to " + newIp + ". Updating NVRAM.");
+      owmIp = newIp;
+      prefs.putString("owm_ip", owmIp);
+    }
+  }
   bool d2 = WiFi.hostByName("www.colyflor.com", p2);
   bool d3 = WiFi.hostByName("worldtimeapi.org", p3);
   WiFiClient c; c.setTimeout(1500);
@@ -728,19 +739,61 @@ bool updateWeather(bool draw) {
   
   String apiUnit = (tempUnit == "F") ? "imperial" : "metric";
   HTTPClient http;
+  String host = "api.openweathermap.org";
   String url;
   
+  IPAddress hostIp; // Temporary variable for DNS resolution
+  bool dnsResolved = WiFi.hostByName(host.c_str(), hostIp);
+
+  if (dnsResolved) {
+    String resolvedIp = hostIp.toString();
+    if (resolvedIp != "0.0.0.0") { // Valid IP resolved
+      if (owmIp == "") { // First time resolving or previous cache was empty
+        logMsg("API: OWM IP resolved to " + resolvedIp + ". Caching in NVRAM.");
+        owmIp = resolvedIp;
+        prefs.putString("owm_ip", owmIp);
+      } else if (resolvedIp != owmIp) { // IP changed
+        logMsg("API: OWM IP changed from " + owmIp + " to " + resolvedIp + ". Updating NVRAM.");
+        owmIp = resolvedIp;
+        prefs.putString("owm_ip", owmIp);
+      } else { // IP is the same
+        logMsg("API: OWM IP still " + resolvedIp + " (cached).");
+      }
+    } else { // hostByName succeeded but returned 0.0.0.0, which is usually a failure
+      logMsg("API: WARNING -> DNS resolved " + host + " to 0.0.0.0. Proceeding with cached IP if available.");
+    }
+  }
+  else {
+    logMsg("API: CRITICAL -> DNS resolution for " + host + " failed. Proceeding with cached IP if available.");
+  }
+
   execute_request:
   if (apiVer == "3.0") {
-    url = "http://api.openweathermap.org/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
+    url = "http://" + host + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
   } else {
-    url = "http://api.openweathermap.org/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
+    url = "http://" + host + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
   }
 
   http.begin(url);
   http.addHeader("User-Agent", "COLYFLOR-Weather/1.6");
   int code = http.GET();
   
+  if (code < 0 && owmIp != "") {
+    logMsg("API: Host request failed (" + String(code) + "). Falling back to direct IP: " + owmIp);
+    http.end();
+    
+    if (apiVer == "3.0") {
+      url = "http://" + owmIp + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
+    } else {
+      url = "http://" + owmIp + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
+    }
+    
+    http.begin(url);
+    http.addHeader("Host", host);
+    http.addHeader("User-Agent", "COLYFLOR-Weather/1.6");
+    code = http.GET();
+  }
+
   if ((code == 401 || code == 404) && apiVer == "3.0") {
     logMsg("API: 3.0 Subscription validation failed (" + String(code) + "). Executing 2.5 Downgrade.");
     apiVer = "2.5";
@@ -795,7 +848,7 @@ bool updateWeather(bool draw) {
             displayState = 0;
             currentAlertIndex = 0;
           }
-          logMsg("API: Weather updated for " + city + ". Temp: " + String(w_curT) + tempUnit + ", Sky: " + w_curS + ", Alerts: " + String(activeAlertCount) + ", Using API v3.0");
+          logMsg("API: Weather updated for " + city + ". Temp: " + String(w_curT) + tempUnit + ", Feels: " + String(w_flsT) + tempUnit + ", Sky: " + w_curS + ", Alerts: " + String(activeAlertCount) + ", Using API v3.0");
         } else {
           JsonArray list = doc["list"];
           w_curT = list[0]["main"]["temp"]; w_flsT = list[0]["main"]["feels_like"];
@@ -812,7 +865,7 @@ bool updateWeather(bool draw) {
           displayState = 0;
           currentAlertIndex = 0;
           String responseCity = doc["city"]["name"].as<String>();
-          logMsg("API: Weather updated for " + responseCity + ". Temp: " + String(w_curT) + tempUnit + ", Sky: " + w_curS + ", Using API v2.5");
+          logMsg("API: Weather updated for " + responseCity + ". Temp: " + String(w_curT) + tempUnit + ", Feels: " + String(w_flsT) + tempUnit + ", Sky: " + w_curS + ", Using API v2.5");
         }
     
         struct tm *tmSr = localtime(&sr); char bR[8]; snprintf(bR, 8, "%02d:%02d", tmSr->tm_hour, tmSr->tm_min); sunUp = bR;
@@ -821,8 +874,10 @@ bool updateWeather(bool draw) {
     http.end(); 
     return true;
   }
-  
-  weatherFailStreak++; http.end(); 
+
+  logMsg("API: ERROR -> Final request attempt failed with code " + String(code));
+  weatherFailStreak++;
+  http.end();
   performNetworkRecovery(weatherFailStreak, false); 
   return false;
 }
@@ -893,7 +948,8 @@ void pCmd(String in) {
     logMsg("help      - Show this list");
     logMsg("status    - Probe network and NVS health");
     logMsg("version   - Print firmware version");
-    logMsg("heartbeat - Trigger health log and backlight update");
+    logMsg("heartbeat - Trigger health log");
+    logMsg("alerts    - Print active weather alerts");
     logMsg("recover   - Force tiered network recovery");
     logMsg("ota       - Check and apply OTA (append 'force' to bypass version check)");
     logMsg("weather   - Force immediate API fetch and UI refresh");
@@ -901,6 +957,7 @@ void pCmd(String in) {
     logMsg("heap      - Display free heap memory");
     logMsg("nvram     - Dump stored preferences");
     logMsg("addwifi   - Syntax: addwifi [ssid] <optional_pass> (Adds/updates WiFi slot)");
+    logMsg("rmwifi    - Syntax: rmwifi [slot] (Removes WiFi from a slot 0-4)");
     logMsg("reset     - Wipe NVRAM and execute hardware reboot");
     logMsg("dim       - Override backlight to night threshold");
     logMsg("bright    - Override backlight to day threshold");
@@ -956,6 +1013,62 @@ void pCmd(String in) {
     } else {
       logMsg("CMD: ERROR -> Invalid syntax. Use addwifi [ssid] <optional_pass>");
     }
+  }
+  else if (lowIn.startsWith("rmwifi ")) {
+    String sub = in.substring(7);
+    sub.trim();
+    
+    int slot = -1;
+    bool confirm = false;
+    String slotArg;
+
+    int spaceIdx = sub.indexOf(' ');
+    if (spaceIdx != -1) {
+      slotArg = sub.substring(0, spaceIdx);
+      String confirmArg = sub.substring(spaceIdx + 1);
+      confirmArg.trim();
+      if (confirmArg.equalsIgnoreCase("confirm")) {
+        confirm = true;
+      }
+    } else {
+      slotArg = sub;
+    }
+
+    if (slotArg.length() == 1 && isDigit(slotArg.charAt(0))) {
+      slot = slotArg.toInt();
+    }
+
+    if (slot < 0 || slot > 4) {
+      logMsg("CMD: ERROR -> Invalid syntax. Use: rmwifi [slot 0-4]");
+      return;
+    }
+
+    String ssidToRemove = prefs.getString(("ssid" + String(slot)).c_str(), "");
+    if (ssidToRemove == "") {
+      logMsg("CMD: Slot " + String(slot) + " is already empty.");
+      return;
+    }
+
+    if (ssidToRemove == WiFi.SSID() && !confirm) {
+      logMsg("CMD: WARNING -> This is the currently active WiFi network.");
+      logMsg("CMD: To proceed, run 'rmwifi " + String(slot) + " confirm'");
+      return;
+    }
+
+    int populatedSlots = 0;
+    for (int i = 0; i < 5; i++) {
+      if (prefs.getString(("ssid" + String(i)).c_str(), "") != "") {
+        populatedSlots++;
+      }
+    }
+    if (populatedSlots == 1) {
+      logMsg("CMD: WARNING -> This is the last stored WiFi network.");
+      logMsg("CMD: Deleting it will cause the device to fall back to Captive Portal (COLYFLOR_SETUP) mode on next connection loss or reboot.");
+    }
+
+    prefs.remove(("ssid" + String(slot)).c_str());
+    prefs.remove(("pass" + String(slot)).c_str());
+    logMsg("CMD: WiFi profile in slot " + String(slot) + " (" + ssidToRemove + ") has been removed.");
   }
   else if (lowIn.startsWith("setapiver ")) {
     String v = in.substring(10); v.trim();
@@ -1101,6 +1214,20 @@ void pCmd(String in) {
     
     logMsg("HEARTBEAT: SSID=" + WiFi.SSID() + " | RSSI=" + String(WiFi.RSSI()) + "dBm | CPU=" + String(temperatureRead(), 1) + "C | Heap=" + String(ESP.getFreeHeap()) + " | WxIn=" + String(wMin) + "m | OTAIn=" + String(oMin) + "m | Up=" + String(upD) + "d " + String(upH) + "h " + String(upM) + "m");
   }
+  else if (lowIn == "alerts") {
+    logMsg("CMD: Dumping active alerts...");
+    if ((alertActive || testAlertMode) && activeAlertCount > 0) {
+      for (int i = 0; i < activeAlertCount; i++) {
+        logMsg("--- ALERT " + String(i + 1) + "/" + String(activeAlertCount) + " ---");
+        logMsg("  Sender: " + alertSender[i]);
+        logMsg("  Event:  " + alertEvent[i]);
+        logMsg("  Desc:   " + alertDesc[i]);
+      }
+      logMsg("--- END OF ALERTS ---");
+    } else {
+      logMsg("CMD: No active alerts.");
+    }
+  }
   else if (lowIn == "heap") { logMsg("Heap: " + String(ESP.getFreeHeap())); }
   else if (lowIn == "reboot") { pendingReboot = true; actionTimer = millis(); logMsg("CMD: Reboot scheduled..."); }
   else if (lowIn == "reset") { pendingReset = true; actionTimer = millis(); logMsg("CMD: Reset scheduled..."); }
@@ -1112,6 +1239,7 @@ void pCmd(String in) {
     logMsg("NVRAM: API Key=" + apiKey);
     logMsg("NVRAM: Loc=" + city + " (" + region + ")");
     logMsg("NVRAM: Coords=" + lat + "," + lon);
+    if (owmIp != "") logMsg("NVRAM: OWM IP=" + owmIp);
     logMsg("NVRAM: TZ=" + tzInfo);
     if (ianaTz != "") logMsg("NVRAM: IANA TZ=" + ianaTz);
     logMsg("NVRAM: Unit=" + tempUnit);

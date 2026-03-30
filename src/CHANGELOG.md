@@ -2,6 +2,24 @@
 
 All notable changes to the COLYFLOR Weather Station project will be documented in this file.
 
+## [1.7] - 2026-03-31
+
+### Added
+- **DNS Caching & Fallback**: The device now caches the IP for `api.openweathermap.org` in NVS. If a weather update fails due to a network/DNS error, it will automatically retry the request using the cached IP address, improving reliability on unstable networks.
+- **Console Alert Dump Command**: A new `alerts` command has been added to print the full details of any active OpenWeatherMap alerts to the Serial and Web consoles for easier debugging.
+- **Targeted WiFi Removal**: Implemented the `rmwifi [slot]` command to delete specific WiFi profiles from NVS. This includes safety checks that require confirmation before deleting the currently active network and a warning when deleting the last-known profile.
+- **Weather Update Logging**: The "Feels Like" temperature is now included in the main weather update log message for more context. The `nvram` command now displays the cached OpenWeatherMap IP address.
+- **DNS Resolution Logging**: Enhanced logging for OpenWeatherMap IP resolution, showing when the IP is cached, updated, or if DNS resolution fails.
+
+
+## [1.6] - 2026-03-22
+
+### Added
+- **DNS Caching & Fallback**: The device now caches the IP for `api.openweathermap.org` in NVS. If a weather update fails due to a network/DNS error, it will automatically retry the request using the cached IP address, improving reliability on unstable networks.
+- **Enhanced Heartbeat Telemetry**: The `heartbeat` command output now includes the current "Feels Like" temperature, providing more immediate weather context from the console.
+- **Alert Dump Command**: A new `alerts` command has been added to print the full details of any active OpenWeatherMap alerts to the Serial and Web consoles for easier debugging.
+- **Targeted WiFi Removal**: Implemented the `rmwifi [slot]` command to delete specific WiFi profiles from NVS. This includes safety checks that require confirmation before deleting the currently active network and a warning when deleting the last-known profile.
+
 ## [1.6] - 2026-03-22
 
 ### Added
