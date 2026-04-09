@@ -34,6 +34,7 @@ The firmware includes a non-blocking command processor accessible via the Arduin
 | `setcoords` | Syntax: `setcoords [lat] [lon]` (Manually sets coordinates) |
 | `settz` | Updates POSIX timezone and forces NTP sync |
 | `setunit` | Syntax: `setunit [C/F]` (Sets temperature unit) |
+| `setowmip` | Syntax: `setowmip [IP]` (Manually sets OWN IP) |
 | `setapi` | Updates OpenWeather API key |
 
 ---
@@ -41,7 +42,7 @@ The firmware includes a non-blocking command processor accessible via the Arduin
 ## 🛰 System Features
 
 * **API 3.0 & Alert Paging:** Supports OpenWeather One Call 3.0 with automatic API 2.5 downgrade fallback. Utilizes a time-multiplexed state machine to render text-wrapped government weather alerts at 10-second intervals.
-* **Captive Portal Configuration:** Hardcoded credentials removed. Device broadcasts `COLYFLOR_SETUP` AP on initial boot or network failure for web-based provisioning.
+* **Captive Portal Configuration:** Device broadcasts `COLYFLOR_SETUP` AP on initial boot or network failure for web-based provisioning. Features a dynamic datalist dropdown for discovering nearby WiFi networks.
 * **Dynamic Geocoding & NVRAM:** Translates user-input city to Lat/Lon coordinates via OpenWeather API and stores preferences in non-volatile flash memory.
 * **Multi-AP Target Scanning:** Stores up to 5 WiFi networks in NVS. Executes explicit environment scans and sequential targeted connections to matched SSIDs.
 * **Intelligent Network Probing:** Deep diagnostic probes enforce strict validation on OpenWeatherMap and primary TCP routing, while executing passive diagnostic-only checks on secondary OTA and Time services to prevent false recovery loops.

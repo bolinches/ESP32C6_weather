@@ -2,25 +2,16 @@
 
 All notable changes to the COLYFLOR Weather Station project will be documented in this file.
 
-## [1.7] - 2026-03-31
+## [1.8] - 2026-04-09
 
 ### Added
-- **DNS Caching & Fallback**: The device now caches the IP for `api.openweathermap.org` in NVS. If a weather update fails due to a network/DNS error, it will automatically retry the request using the cached IP address, improving reliability on unstable networks.
-- **Console Alert Dump Command**: A new `alerts` command has been added to print the full details of any active OpenWeatherMap alerts to the Serial and Web consoles for easier debugging.
-- **Targeted WiFi Removal**: Implemented the `rmwifi [slot]` command to delete specific WiFi profiles from NVS. This includes safety checks that require confirmation before deleting the currently active network and a warning when deleting the last-known profile.
-- **Weather Update Logging**: The "Feels Like" temperature is now included in the main weather update log message for more context. The `nvram` command now displays the cached OpenWeatherMap IP address.
-- **DNS Resolution Logging**: Enhanced logging for OpenWeatherMap IP resolution, showing when the IP is cached, updated, or if DNS resolution fails.
+- **Manual OWN IP Override:** Added the `setowmip [IP]` command to manually bypass DNS and set the OpenWeatherMap API IPv4 address in NVRAM. Include format validation.
+- **WiFi Network Discovery:** The Captive Portal now scans for available WiFi networks and populates them into a dropdown datalist. This simplifies setup while maintaining support for manual typing of hidden SSIDs.
 
+### Fixed
+- **Log Date Formatting:** Corrected a typo in the timestamp of serial and web console logs to properly use hyphens for dates instead of colons (e.g., `2026-04-09` instead of `2026:04:09`).
 
-## [1.6] - 2026-03-22
-
-### Added
-- **DNS Caching & Fallback**: The device now caches the IP for `api.openweathermap.org` in NVS. If a weather update fails due to a network/DNS error, it will automatically retry the request using the cached IP address, improving reliability on unstable networks.
-- **Enhanced Heartbeat Telemetry**: The `heartbeat` command output now includes the current "Feels Like" temperature, providing more immediate weather context from the console.
-- **Alert Dump Command**: A new `alerts` command has been added to print the full details of any active OpenWeatherMap alerts to the Serial and Web consoles for easier debugging.
-- **Targeted WiFi Removal**: Implemented the `rmwifi [slot]` command to delete specific WiFi profiles from NVS. This includes safety checks that require confirmation before deleting the currently active network and a warning when deleting the last-known profile.
-
-## [1.6] - 2026-03-22
+## [1.6] - 2026-03-20
 
 ### Added
 - **Multi-Alert & Pagination Engine:** The alert display system now fully supports cycling through multiple active alerts. Long alert descriptions are automatically word-wrapped and paginated, with on-screen indicators for the current alert and page number.

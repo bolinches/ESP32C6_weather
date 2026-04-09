@@ -244,7 +244,7 @@ void logMsg(String m) {
   String ts = "[00:00:00 0000:00:00] ";
   if (getLocalTime(&ti)) {
     char buf[32];
-    snprintf(buf, sizeof(buf), "[%02d:%02d:%02d %04d:%02d:%02d] ", 
+    snprintf(buf, sizeof(buf), "[%02d:%02d:%02d %04d-%02d-%02d] ", 
              ti.tm_hour, ti.tm_min, ti.tm_sec, ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
     ts = String(buf);
   }
@@ -316,7 +316,7 @@ void loadPreferences() {
   owmIp = prefs.getString("owm_ip", "");
   tempUnit = prefs.getString("unit", "C");
   logMsg("NVRAM: Loaded API Target: v" + apiVer);
-  if (owmIp != "") logMsg("NVRAM: Cached OWM IP: " + owmIp);
+  if (owmIp != "") logMsg("NVRAM: Cached OWN IP: " + owmIp);
 }
 
 bool connectTargetedWiFi() {
@@ -428,6 +428,15 @@ void startCaptivePortal() {
   showBootStatus("AP: COLYFLOR_SETUP"); dnsServer.start(53, "*", WiFi.softAPIP());
   
   server.onNotFound([]() {
+    int n = WiFi.scanNetworks();
+    String wifiOptions = "";
+    for (int i = 0; i < n; ++i) {
+      String ssid = WiFi.SSID(i);
+      if (ssid.length() > 0) {
+        wifiOptions += "<option value='" + sanitizeOutput(ssid, true) + "'>";
+      }
+    }
+
     String html = "<html><head><meta charset=\"UTF-8\"><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<script>window.onload=function(){document.getElementById('iana_tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone;}</script><style>";
     html += "body{font-family:sans-serif;padding:20px;background:#111;color:#fff;text-align:center;}";
@@ -435,7 +444,8 @@ void startCaptivePortal() {
     html += "input,select{width:100%;padding:10px;margin:5px 0 15px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;box-sizing:border-box;}";
     html += "button{width:100%;padding:12px;background:#0f0;color:#000;font-weight:bold;border:none;border-radius:4px}</style></head><body>";
     html += "<h2>COLYFLOR Setup</h2><form method='POST' action='/save' accept-charset='UTF-8'>";
-    html += "<label>WiFi SSID</label><input type='text' name='s' required>";
+    html += "<label>WiFi SSID</label><input type='text' name='s' list='wifis' autocomplete='off' required>";
+    html += "<datalist id='wifis'>" + wifiOptions + "</datalist>";
     html += "<label>WiFi Password</label><input type='password' name='p'>";
     html += "<input type='hidden' id='iana_tz' name='iana_tz'>";
     html += "<label>OpenWeather API Key</label><input type='text' name='k' required>";
@@ -749,15 +759,15 @@ bool updateWeather(bool draw) {
     String resolvedIp = hostIp.toString();
     if (resolvedIp != "0.0.0.0") { // Valid IP resolved
       if (owmIp == "") { // First time resolving or previous cache was empty
-        logMsg("API: OWM IP resolved to " + resolvedIp + ". Caching in NVRAM.");
+          logMsg("API: OWN IP resolved to " + resolvedIp + ". Caching in NVRAM.");
         owmIp = resolvedIp;
         prefs.putString("owm_ip", owmIp);
       } else if (resolvedIp != owmIp) { // IP changed
-        logMsg("API: OWM IP changed from " + owmIp + " to " + resolvedIp + ". Updating NVRAM.");
+          logMsg("API: OWN IP changed from " + owmIp + " to " + resolvedIp + ". Updating NVRAM.");
         owmIp = resolvedIp;
         prefs.putString("owm_ip", owmIp);
       } else { // IP is the same
-        logMsg("API: OWM IP still " + resolvedIp + " (cached).");
+          logMsg("API: OWN IP still " + resolvedIp + " (cached).");
       }
     } else { // hostByName succeeded but returned 0.0.0.0, which is usually a failure
       logMsg("API: WARNING -> DNS resolved " + host + " to 0.0.0.0. Proceeding with cached IP if available.");
@@ -970,6 +980,7 @@ void pCmd(String in) {
     logMsg("setcoords - Set Lat/Lon (setcoords [lat] [lon])");
     logMsg("setiana   - Update IANA TZ (setiana [Region/City])");
     logMsg("setunit   - Set Temp Unit (setunit [C|F])");
+    logMsg("setowmip  - Manually set OWN IP (setowmip [IP])");
     logMsg("settz     - Update TZ string");
     logMsg("setapi    - Update API key");
     logMsg("clear     - Clear terminal history");
@@ -1182,6 +1193,19 @@ void pCmd(String in) {
       logMsg("CMD: ERROR -> Invalid unit. Use 'C' for Celsius or 'F' for Fahrenheit.");
     }
   }
+  else if (lowIn.startsWith("setowmip ")) {
+    String newIp = in.substring(9);
+    newIp.trim();
+    IPAddress ip;
+    if (ip.fromString(newIp)) {
+      owmIp = newIp;
+      prefs.putString("owm_ip", owmIp);
+      logMsg("CMD: OWN IP manually set to " + owmIp);
+      updateWeather(true); // Force an update immediately to test the route
+    } else {
+      logMsg("CMD: ERROR -> Invalid IPv4 address format.");
+    }
+  }
   else if (lowIn.startsWith("settz ")) { 
     tzInfo = in.substring(6); tzInfo.trim(); prefs.putString("tz", tzInfo); 
     logMsg("CMD: Timezone string updated.");
@@ -1239,7 +1263,7 @@ void pCmd(String in) {
     logMsg("NVRAM: API Key=" + apiKey);
     logMsg("NVRAM: Loc=" + city + " (" + region + ")");
     logMsg("NVRAM: Coords=" + lat + "," + lon);
-    if (owmIp != "") logMsg("NVRAM: OWM IP=" + owmIp);
+    if (owmIp != "") logMsg("NVRAM: OWN IP=" + owmIp);
     logMsg("NVRAM: TZ=" + tzInfo);
     if (ianaTz != "") logMsg("NVRAM: IANA TZ=" + ianaTz);
     logMsg("NVRAM: Unit=" + tempUnit);
