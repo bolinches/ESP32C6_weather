@@ -397,7 +397,7 @@ bool geocodeCity(String qCity, String qApi) {
   logMsg("GEO: Requesting coordinates for '" + qCity + "' [" + urlEncode(qCity) + "]...");
   HTTPClient http;
   http.begin("http://api.openweathermap.org/geo/1.0/direct?q=" + urlEncode(qCity) + "&limit=1&appid=" + qApi);
-  http.addHeader("User-Agent", "COLYFLOR-Weather/1.6");
+  http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
   int code = http.GET();
   if (code == 200) {
     DynamicJsonDocument doc(2048); deserializeJson(doc, http.getStream());
@@ -785,7 +785,7 @@ bool updateWeather(bool draw) {
   }
 
   http.begin(url);
-  http.addHeader("User-Agent", "COLYFLOR-Weather/1.6");
+  http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
   int code = http.GET();
   
   if (code < 0 && owmIp != "") {
@@ -800,7 +800,7 @@ bool updateWeather(bool draw) {
     
     http.begin(url);
     http.addHeader("Host", host);
-    http.addHeader("User-Agent", "COLYFLOR-Weather/1.6");
+    http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
     code = http.GET();
   }
 
@@ -910,7 +910,7 @@ bool updatePosixFromIana(String iana) {
       delay(2000);
     }
     http.begin(url);
-    http.addHeader("User-Agent", "COLYFLOR-Weather/1.6");
+    http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
     code = http.GET();
     if (code <= 0) http.end();
     retries++;

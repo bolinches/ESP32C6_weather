@@ -11,6 +11,12 @@ All notable changes to the COLYFLOR Weather Station project will be documented i
 ### Fixed
 - **Log Date Formatting:** Corrected a typo in the timestamp of serial and web console logs to properly use hyphens for dates instead of colons (e.g., `2026-04-09` instead of `2026:04:09`).
 
+## [1.7] - 2026-03-30
+
+### Added
+- **WiFi Profile Management:** Implemented the `rmwifi [slot]` console command to allow selective deletion of saved WiFi profiles from NVRAM without needing a full system reset.
+- **Framework Optimizations:** Internal stability improvements and structural groundwork for the v1.8 captive portal and IP override features.
+
 ## [1.6] - 2026-03-20
 
 ### Added
