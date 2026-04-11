@@ -41,7 +41,7 @@ String tzInfo = "";
 String ianaTz = "";
 String region = "";
 String tempUnit = "C";
-String owmIp = "";
+String openWeatherIp = "";
 String apiVer = "3.0";
 
 unsigned long lastOTACheck = 0;
@@ -313,10 +313,10 @@ void loadPreferences() {
   tzInfo = prefs.getString("tz", "EET-2EEST,M3.5.0/3,M10.5.0/4");
   ianaTz = prefs.getString("iana_tz", "");
   apiVer = prefs.getString("api_ver", "3.0");
-  owmIp = prefs.getString("owm_ip", "");
+  openWeatherIp = prefs.getString("owm_ip", "");
   tempUnit = prefs.getString("unit", "C");
   logMsg("NVRAM: Loaded API Target: v" + apiVer);
-  if (owmIp != "") logMsg("NVRAM: Cached OWN IP: " + owmIp);
+  if (openWeatherIp != "") logMsg("NVRAM: Cached OpenWeather IP: " + openWeatherIp);
 }
 
 bool connectTargetedWiFi() {
@@ -606,10 +606,10 @@ bool runDeepProbe() {
   bool d1 = WiFi.hostByName("api.openweathermap.org", p1);
   if (d1) {
     String newIp = p1.toString();
-    if (newIp != "0.0.0.0" && newIp != owmIp) {
+    if (newIp != "0.0.0.0" && newIp != openWeatherIp) {
       logMsg("PROBE: OpenWeatherMap IP resolved to " + newIp + ". Updating NVRAM.");
-      owmIp = newIp;
-      prefs.putString("owm_ip", owmIp);
+      openWeatherIp = newIp;
+      prefs.putString("owm_ip", openWeatherIp);
     }
   }
   bool d2 = WiFi.hostByName("www.colyflor.com", p2);
@@ -758,16 +758,16 @@ bool updateWeather(bool draw) {
   if (dnsResolved) {
     String resolvedIp = hostIp.toString();
     if (resolvedIp != "0.0.0.0") { // Valid IP resolved
-      if (owmIp == "") { // First time resolving or previous cache was empty
-          logMsg("API: OWN IP resolved to " + resolvedIp + ". Caching in NVRAM.");
-        owmIp = resolvedIp;
-        prefs.putString("owm_ip", owmIp);
-      } else if (resolvedIp != owmIp) { // IP changed
-          logMsg("API: OWN IP changed from " + owmIp + " to " + resolvedIp + ". Updating NVRAM.");
-        owmIp = resolvedIp;
-        prefs.putString("owm_ip", owmIp);
+      if (openWeatherIp == "") { // First time resolving or previous cache was empty
+          logMsg("API: OpenWeather IP resolved to " + resolvedIp + ". Caching in NVRAM.");
+        openWeatherIp = resolvedIp;
+        prefs.putString("owm_ip", openWeatherIp);
+      } else if (resolvedIp != openWeatherIp) { // IP changed
+          logMsg("API: OpenWeather IP changed from " + openWeatherIp + " to " + resolvedIp + ". Updating NVRAM.");
+        openWeatherIp = resolvedIp;
+        prefs.putString("owm_ip", openWeatherIp);
       } else { // IP is the same
-          logMsg("API: OWN IP still " + resolvedIp + " (cached).");
+          logMsg("API: OpenWeather IP still " + resolvedIp + " (cached).");
       }
     } else { // hostByName succeeded but returned 0.0.0.0, which is usually a failure
       logMsg("API: WARNING -> DNS resolved " + host + " to 0.0.0.0. Proceeding with cached IP if available.");
@@ -788,14 +788,14 @@ bool updateWeather(bool draw) {
   http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
   int code = http.GET();
   
-  if (code < 0 && owmIp != "") {
-    logMsg("API: Host request failed (" + String(code) + "). Falling back to direct IP: " + owmIp);
+  if (code < 0 && openWeatherIp != "") {
+    logMsg("API: Host request failed (" + String(code) + "). Falling back to direct IP: " + openWeatherIp);
     http.end();
     
     if (apiVer == "3.0") {
-      url = "http://" + owmIp + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
+      url = "http://" + openWeatherIp + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
     } else {
-      url = "http://" + owmIp + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
+      url = "http://" + openWeatherIp + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
     }
     
     http.begin(url);
@@ -980,7 +980,7 @@ void pCmd(String in) {
     logMsg("setcoords - Set Lat/Lon (setcoords [lat] [lon])");
     logMsg("setiana   - Update IANA TZ (setiana [Region/City])");
     logMsg("setunit   - Set Temp Unit (setunit [C|F])");
-    logMsg("setowmip  - Manually set OWN IP (setowmip [IP])");
+    logMsg("setowmip  - Manually set OpenWeather IP (setowmip [IP])");
     logMsg("settz     - Update TZ string");
     logMsg("setapi    - Update API key");
     logMsg("clear     - Clear terminal history");
@@ -1198,9 +1198,9 @@ void pCmd(String in) {
     newIp.trim();
     IPAddress ip;
     if (ip.fromString(newIp)) {
-      owmIp = newIp;
-      prefs.putString("owm_ip", owmIp);
-      logMsg("CMD: OWN IP manually set to " + owmIp);
+      openWeatherIp = newIp;
+      prefs.putString("owm_ip", openWeatherIp);
+      logMsg("CMD: OpenWeather IP manually set to " + openWeatherIp);
       updateWeather(true); // Force an update immediately to test the route
     } else {
       logMsg("CMD: ERROR -> Invalid IPv4 address format.");
@@ -1263,7 +1263,7 @@ void pCmd(String in) {
     logMsg("NVRAM: API Key=" + apiKey);
     logMsg("NVRAM: Loc=" + city + " (" + region + ")");
     logMsg("NVRAM: Coords=" + lat + "," + lon);
-    if (owmIp != "") logMsg("NVRAM: OWN IP=" + owmIp);
+    if (openWeatherIp != "") logMsg("NVRAM: OpenWeather IP=" + openWeatherIp);
     logMsg("NVRAM: TZ=" + tzInfo);
     if (ianaTz != "") logMsg("NVRAM: IANA TZ=" + ianaTz);
     logMsg("NVRAM: Unit=" + tempUnit);

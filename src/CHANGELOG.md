@@ -2,6 +2,11 @@
 
 All notable changes to the COLYFLOR Weather Station project will be documented in this file.
 
+## [1.9] - 2026-04-11
+
+### Fixed
+- **OpenWeather API IP logs:** Change OWM variables and logs medsages to make it clerar is about OpenWeather API IP address not OWN ip
+
 ## [1.8] - 2026-04-09
 
 ### Added
