@@ -658,79 +658,164 @@ bool verifySignature(String data, String sigB64) {
   mbedtls_pk_free(&pk); return r == 0;
 }
 
-int compareVersion(String localV, String remoteV) {
-  float loc = localV.toFloat(); float rem = remoteV.toFloat();
-  if (rem > loc) return 1; if (rem < loc) return -1; return 0;
+bool isVersionNewer(const String& current, const String& remote) {
+  int c[3] = {0}, r[3] = {0};
+  sscanf(current.c_str(), "%d.%d.%d", &c[0], &c[1], &c[2]);
+  sscanf(remote.c_str(), "%d.%d.%d", &r[0], &r[1], &r[2]);
+  for (int i = 0; i < 3; i++) {
+    if (r[i] > c[i]) return true;
+    if (r[i] < c[i]) return false;
+  }
+  return false; // equal
 }
 
 void runOTA(bool force) {
   logMsg("OTA: Target URL -> " + String(manifestUrl));
-  WiFiClientSecure client; client.setInsecure(); HTTPClient http;
   
+  String nV = "0.0", binUrl = "", hash = "N/A", signature = "";
+  size_t expectedSize = 0;
+  bool manifestForce = false;
+  bool manifestValid = false;
+
   logMsg("OTA: Executing Manifest Fetch...");
-  if (http.begin(client, manifestUrl)) {
-    int code = http.GET();
-    logMsg("OTA: Manifest Request -> HTTP " + String(code));
-    
-    if (code == 200) {
-      DynamicJsonDocument doc(2048); deserializeJson(doc, http.getStream());
-      String nV = doc["version"] | "0.0"; String binUrl = doc["url"] | "";
-      String hash = doc["bin_hash"] | "N/A"; size_t expectedSize = doc["size"] | 0;
-      bool manifestForce = doc["force"] | false;
+  {
+    WiFiClientSecure client; client.setInsecure(); HTTPClient http;
+    if (http.begin(client, manifestUrl)) {
+      int code = http.GET();
+      logMsg("OTA: Manifest Request -> HTTP " + String(code));
       
-      logMsg("OTA: Local Version: v" + String(CURRENT_VERSION));
-      logMsg("OTA: Remote Version: v" + nV);
-      
-      int vCheck = compareVersion(String(CURRENT_VERSION), nV);
-      bool proceed = false;
-      
-      if (vCheck > 0) {
-        logMsg("OTA: EVAL -> Newer version detected.");
-        proceed = true;
-      } else if (force || manifestForce) {
-        logMsg("OTA: EVAL -> Forced execution override active.");
-        proceed = true;
+      if (code == 200) {
+        DynamicJsonDocument doc(2048); deserializeJson(doc, http.getStream());
+        nV = doc["version"] | "0.0"; 
+        binUrl = doc["url"] | "";
+        hash = doc["bin_hash"] | "N/A"; 
+        expectedSize = doc["size"] | 0;
+        manifestForce = doc["force"] | false;
+        signature = doc["signature"] | "";
+        manifestValid = true;
       } else {
-        logMsg("OTA: EVAL -> System up to date. Execution aborted.");
+        logMsg("OTA: ERROR -> Failed to retrieve manifest.");
       }
+      http.end();
+    } else {
+      logMsg("OTA: ERROR -> Secure client connection to host failed.");
+    }
+  }
+
+  if (!manifestValid) return;
+
+  if (hash == "N/A" || hash.length() != 64) {
+    logMsg("OTA: SECURITY ERROR -> Manifest missing valid SHA-256.");
+    return;
+  }
+
+  logMsg("OTA: Local Version: v" + String(CURRENT_VERSION));
+  logMsg("OTA: Remote Version: v" + nV);
+  
+  bool proceed = false;
+  
+  if (isVersionNewer(String(CURRENT_VERSION), nV)) {
+    logMsg("OTA: EVAL -> Newer version detected.");
+    proceed = true;
+  } else if (force || manifestForce) {
+    logMsg("OTA: EVAL -> Forced execution override active.");
+    proceed = true;
+  } else {
+    logMsg("OTA: EVAL -> System up to date. Execution aborted.");
+  }
+  
+  if (proceed) {
+    size_t freeSpace = ESP.getFreeSketchSpace();
+    logMsg("OTA: Integrity -> Expected Size: " + String(expectedSize) + " bytes | Free Partition: " + String(freeSpace) + " bytes");
+    
+    if (expectedSize > 0 && expectedSize > freeSpace) { 
+      logMsg("OTA: CRITICAL ERROR -> Binary too large for partition."); 
+      return; 
+    }
+    
+    logMsg("OTA: Security -> Verifying ECDSA Signature...");
+    if (verifySignature(nV + "|" + hash, signature)) {
+      logMsg("OTA: Security -> Signature VALID.");
+      logMsg("OTA: Network -> Binary URL resolved: " + binUrl);
+      logMsg("OTA: STATUS -> STARTING BINARY DOWNLOAD...");
       
-      if (proceed) {
-        size_t freeSpace = ESP.getFreeSketchSpace();
-        logMsg("OTA: Integrity -> Expected Size: " + String(expectedSize) + " bytes | Free Partition: " + String(freeSpace) + " bytes");
-        
-        if (expectedSize > 0 && expectedSize > freeSpace) { 
-          logMsg("OTA: CRITICAL ERROR -> Binary too large for partition."); 
-          http.end(); 
-          return; 
-        }
-        
-        logMsg("OTA: Security -> Verifying ECDSA Signature...");
-        if (verifySignature(nV + "|" + hash, doc["signature"] | "")) {
-          logMsg("OTA: Security -> Signature VALID.");
-          logMsg("OTA: Network -> Binary URL resolved: " + binUrl);
-          logMsg("OTA: STATUS -> STARTING BINARY DOWNLOAD...");
-          
-          httpUpdate.rebootOnUpdate(false);
-          t_httpUpdate_return ret = httpUpdate.update(client, binUrl);
-          
-          if (ret == HTTP_UPDATE_OK) { 
-            logMsg("OTA: SUCCESS -> Binary fully verified and written. Rebooting."); 
-            delay(2000); 
-            ESP.restart(); 
-          }
-          else { 
-            logMsg("OTA: ERROR -> Flash/Download failed: " + httpUpdate.getLastErrorString()); 
+      WiFiClientSecure clientBin; clientBin.setInsecure(); HTTPClient httpBin;
+      if (httpBin.begin(clientBin, binUrl)) {
+        int codeBin = httpBin.GET();
+        if (codeBin == 200) {
+          int len = httpBin.getSize();
+          if (len > 0 && Update.begin(len)) {
+            WiFiClient* stream = httpBin.getStreamPtr();
+            mbedtls_md_context_t ctx;
+            mbedtls_md_init(&ctx);
+            mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
+            mbedtls_md_starts(&ctx);
+            
+            uint8_t buff[1024];
+            int remaining = len;
+            bool writeError = false;
+            uint32_t dlStart = millis();
+            
+            while (remaining > 0 && httpBin.connected()) {
+              if (millis() - dlStart > 120000) { // 2 min max
+                logMsg("OTA: TIMEOUT -> Download stalled.");
+                writeError = true; 
+                break;
+              }
+              size_t size = stream->available();
+              if (size) {
+                int toRead = size > sizeof(buff) ? sizeof(buff) : size;
+                int c = stream->read(buff, toRead);
+                if (c > 0) {
+                  if (Update.write(buff, c) != c) {
+                    writeError = true;
+                    break;
+                  }
+                  mbedtls_md_update(&ctx, buff, c);
+                  remaining -= c;
+                }
+              } else {
+                delay(1);
+              }
+            }
+            
+            uint8_t calcHash[32];
+            mbedtls_md_finish(&ctx, calcHash);
+            mbedtls_md_free(&ctx);
+            
+            if (writeError || remaining > 0) {
+              Update.abort();
+              logMsg("OTA: ERROR -> Flash write failed or download incomplete.");
+            } else {
+              char calcHashHex[65];
+              for (int i = 0; i < 32; i++) snprintf(&calcHashHex[i * 2], 3, "%02x", calcHash[i]);
+              
+              if (String(calcHashHex).equalsIgnoreCase(hash)) {
+                if (Update.end(true)) {
+                  logMsg("OTA: SUCCESS -> Binary fully verified and written. Rebooting.");
+                  delay(2000);
+                  ESP.restart();
+                } else {
+                  logMsg("OTA: ERROR -> Update.end() failed.");
+                }
+              } else {
+                Update.abort();
+                logMsg("OTA: SECURITY ERROR -> SHA-256 mismatch! Expected: " + hash);
+              }
+            }
+          } else {
+            logMsg("OTA: ERROR -> Not enough space to begin OTA update.");
           }
         } else {
-          logMsg("OTA: SECURITY ERROR -> ECDSA Signature Mismatch.");
+          logMsg("OTA: ERROR -> Binary download request failed: HTTP " + String(codeBin));
         }
+        httpBin.end();
+      } else {
+        logMsg("OTA: ERROR -> Unable to connect to binary URL.");
       }
     } else {
-      logMsg("OTA: ERROR -> Failed to retrieve manifest.");
+      logMsg("OTA: SECURITY ERROR -> ECDSA Signature Mismatch.");
     }
-    http.end();
-  } else {
-    logMsg("OTA: ERROR -> Secure client connection to host failed.");
   }
 }
 

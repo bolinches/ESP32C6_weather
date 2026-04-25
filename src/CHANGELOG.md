@@ -2,6 +2,22 @@
 
 All notable changes to the COLYFLOR Weather Station project will be documented in this file.
 
+## [2.0] - 2026-04-25
+### Security
+- **Secure OTA Validation:** Replaced `HTTPUpdate` with a custom stream loop to incrementally compute the SHA-256 hash during download. The update is now aborted before the boot partition switches if the binary's hash does not strictly match the ECDSA-verified manifest, preventing MITM firmware injection.
+- **Manifest Hash Validation:** Added an early abort sequence if the OTA manifest is missing a valid 64-character SHA-256 hash, preventing unnecessary downloads and confusing mismatch logs.
+
+### Fixed
+- **Version Comparison:** Replaced string-based version comparison with semantic version parsing (`isVersionNewer`) to correctly evaluate multi-digit minor versions (e.g., preventing 1.10 from sorting before 1.9).
+- **OTA Timeout:** Added a 300-second timeout to the OTA download stream to prevent the device from hanging indefinitely if the server stalls but keeps the TCP socket open.
+- **OTA Connection Leak:** Separated the manifest check and binary download into distinct HTTPClient and WiFiClientSecure scopes to prevent TLS state corruption and potential hardware panics.
+- **OTA Partition Swap:** Explicitly passed `true` to `Update.end()` to ensure the ESP32-C6 reliably commits the partition swap across different Arduino core versions.
+
+## [1.91] - 2026-04-21
+### Fixed
+- **Alerts timer:** Change alerts time from 10 seconds to 5 seconds as per user's request.
+- **OTA version check:** Separate major and minor version, this was signed as 1.91 so the code would go over OTA
+
 ## [1.9] - 2026-04-11
 
 ### Fixed

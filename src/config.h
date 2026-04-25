@@ -1,6 +1,6 @@
 #pragma once
 
-#define CURRENT_VERSION "1.9"
+#define CURRENT_VERSION "2.0"
 
 const char* ntpServer = "pool.ntp.org";
 
@@ -16,7 +16,7 @@ const char* ntpServer = "pool.ntp.org";
 
 // --- Alert & UI Timings (milliseconds) ---
 #define ALERT_PAGE_DELAY 5000       // Time to show one page of a multi-page alert
-#define ALERT_SWAP_DELAY 10000      // Time to show a single alert before swapping to the next
+#define ALERT_SWAP_DELAY 5000      // Time to show a single alert before swapping to the next
 #define NORMAL_SCREEN_DELAY 10000   // Time to show the main weather screen
 
 const char* manifestUrl = "https://www.colyflor.com/WEATHER/JPA/manifest.json";
