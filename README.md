@@ -2,6 +2,8 @@
 
 An autonomous, secure weather monitoring station powered by an ESP32-C6. Features a "Feels Like" temperature display, 4-line hourly forecast, API 3.0 alert paging, captive portal configuration, and an encrypted OTA update system.
 
+> **Note:** To set up the device, you will need to get a free API token from [OpenWeatherMap](https://openweathermap.org/). You can use either the One Call API 3.0 (which includes weather alerts) or the standard API 2.5.
+
 ## 🚀 Serial & Web Interactive Dashboard
 
 The firmware includes a non-blocking command processor accessible via the Arduino Serial Monitor (**115200 Baud**, Newline termination) or the local Web Console (`http://<DEVICE_IP>/console`).
@@ -34,7 +36,7 @@ The firmware includes a non-blocking command processor accessible via the Arduin
 | `setcoords` | Syntax: `setcoords [lat] [lon]` (Manually sets coordinates) |
 | `settz` | Updates POSIX timezone and forces NTP sync |
 | `setunit` | Syntax: `setunit [C/F]` (Sets temperature unit) |
-| `setowmip` | Syntax: `setowmip [IP]` (Manually sets OWN IP) |
+| `setowmip` | Syntax: `setowmip [IP]` (Manually sets OpenWeather IP) |
 | `setapi` | Updates OpenWeather API key |
 
 ---

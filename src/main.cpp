@@ -72,7 +72,6 @@ int currentAlertIndex = 0;
 String alertEvent[MAX_ALERTS];
 String alertSender[MAX_ALERTS];
 String alertDesc[MAX_ALERTS];
-String logoDataUri = "";
 
 int displayState = 0; 
 unsigned long currentScreenDelay = 10000;
@@ -157,12 +156,16 @@ void processAlertText(String text) {
     alertLines[alertTotalLines++] = currentLine;
   }
   
+  if (alertTotalLines >= 30 && words.length() > 0) {
+    logMsg("ALERT: Warning -> Description truncated (exceeds 30 lines).");
+  }
+
   int linesPerPage = 6;
   alertTotalPages = (alertTotalLines + linesPerPage - 1) / linesPerPage; 
   if (alertTotalPages > 5) alertTotalPages = 5; 
 }
 
-String generateLogoDataURI() {
+void serveLogoBmp() {
   int width = COLYFLOR_WIDTH;
   int height = COLYFLOR_HEIGHT;
   int row_size = width * 3;
@@ -185,15 +188,18 @@ String generateLogoDataURI() {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
   };
 
-  unsigned char* bmp_data = (unsigned char*)malloc(image_size);
-  if (!bmp_data) return "";
-  
-  memset(bmp_data, 0, image_size);
+  server.setContentLength(file_size);
+  server.send(200, "image/bmp", "");
+  server.sendContent((const char*)bmp_header, 54);
+
+  unsigned char* row_data = (unsigned char*)malloc(padded_row_size);
+  if (!row_data) return;
 
   for (int y = 0; y < height; y++) {
+    memset(row_data, 0, padded_row_size);
+    int colyflor_y = height - 1 - y;
     for (int x = 0; x < width; x++) {
-      int bmp_y = height - 1 - y;
-      uint16_t color16 = colyflor[y * width + x];
+      uint16_t color16 = colyflor[colyflor_y * width + x];
       
       uint8_t r = (color16 & 0xF800) >> 11;
       uint8_t g = (color16 & 0x07E0) >> 5;
@@ -204,39 +210,13 @@ String generateLogoDataURI() {
       uint8_t b8 = b << 3;
 
       int bmp_x = x * 3;
-      bmp_data[bmp_y * padded_row_size + bmp_x] = b8;
-      bmp_data[bmp_y * padded_row_size + bmp_x + 1] = g8;
-      bmp_data[bmp_y * padded_row_size + bmp_x + 2] = r8;
+      row_data[bmp_x] = b8;
+      row_data[bmp_x + 1] = g8;
+      row_data[bmp_x + 2] = r8;
     }
+    server.sendContent((const char*)row_data, padded_row_size);
   }
-
-  size_t total_size = sizeof(bmp_header) + image_size;
-  unsigned char* full_bmp = (unsigned char*)malloc(total_size);
-  if (!full_bmp) {
-      free(bmp_data);
-      return "";
-  }
-  memcpy(full_bmp, bmp_header, sizeof(bmp_header));
-  memcpy(full_bmp + sizeof(bmp_header), bmp_data, image_size);
-  free(bmp_data);
-
-  size_t output_len;
-  mbedtls_base64_encode(NULL, 0, &output_len, full_bmp, total_size);
-  
-  unsigned char* base64_buf = (unsigned char*)malloc(output_len + 1);
-  if (!base64_buf) {
-    free(full_bmp);
-    return "";
-  }
-  
-  mbedtls_base64_encode(base64_buf, output_len, &output_len, full_bmp, total_size);
-  base64_buf[output_len] = '\0';
-  
-  String data_uri = "data:image/bmp;base64," + String((char*)base64_buf);
-
-  free(full_bmp);
-  free(base64_buf);
-  return data_uri;
+  free(row_data);
 }
 
 void logMsg(String m) {
@@ -365,7 +345,6 @@ bool connectTargetedWiFi() {
 
 String urlEncode(String str) {
   String encodedString="";
-  char c;
   char code0;
   char code1;
   for (int i = 0; i < str.length(); i++) {
@@ -395,12 +374,20 @@ String urlEncode(String str) {
 bool geocodeCity(String qCity, String qApi) {
   qCity.trim();
   logMsg("GEO: Requesting coordinates for '" + qCity + "' [" + urlEncode(qCity) + "]...");
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
-  http.begin("http://api.openweathermap.org/geo/1.0/direct?q=" + urlEncode(qCity) + "&limit=1&appid=" + qApi);
+  http.begin(client, "https://api.openweathermap.org/geo/1.0/direct?q=" + urlEncode(qCity) + "&limit=1&appid=" + qApi);
   http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
   int code = http.GET();
   if (code == 200) {
-    DynamicJsonDocument doc(2048); deserializeJson(doc, http.getStream());
+    DynamicJsonDocument doc(2048); 
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    if (err) {
+      logMsg("GEO: ERROR -> JSON parse failed: " + String(err.c_str()));
+      http.end(); 
+      return false;
+    }
     if (doc.size() > 0) {
       lat = doc[0]["lat"].as<String>(); lon = doc[0]["lon"].as<String>();
       String st = doc[0]["state"] | ""; String co = doc[0]["country"] | "";
@@ -429,30 +416,33 @@ void startCaptivePortal() {
   
   server.onNotFound([]() {
     int n = WiFi.scanNetworks();
-    String wifiOptions = "";
+
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200, "text/html", "");
+
+    server.sendContent("<html><head><meta charset=\"UTF-8\"><meta name='viewport' content='width=device-width,initial-scale=1'>");
+    server.sendContent("<script>window.onload=function(){document.getElementById('iana_tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone;}</script><style>");
+    server.sendContent("body{font-family:sans-serif;padding:20px;background:#111;color:#fff;text-align:center;}");
+    server.sendContent("form{max-width:400px;margin:0 auto;text-align:left;}");
+    server.sendContent("input,select{width:100%;padding:10px;margin:5px 0 15px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;box-sizing:border-box;}");
+    server.sendContent("button{width:100%;padding:12px;background:#0f0;color:#000;font-weight:bold;border:none;border-radius:4px}</style></head><body>");
+    server.sendContent("<h2>COLYFLOR Setup</h2><form method='POST' action='/save' accept-charset='UTF-8'>");
+    server.sendContent("<label>WiFi SSID</label><input type='text' name='s' list='wifis' autocomplete='off' required>");
+    server.sendContent("<datalist id='wifis'>");
     for (int i = 0; i < n; ++i) {
       String ssid = WiFi.SSID(i);
       if (ssid.length() > 0) {
-        wifiOptions += "<option value='" + sanitizeOutput(ssid, true) + "'>";
+        server.sendContent("<option value='" + sanitizeOutput(ssid, true) + "'>");
       }
     }
-
-    String html = "<html><head><meta charset=\"UTF-8\"><meta name='viewport' content='width=device-width,initial-scale=1'>";
-    html += "<script>window.onload=function(){document.getElementById('iana_tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone;}</script><style>";
-    html += "body{font-family:sans-serif;padding:20px;background:#111;color:#fff;text-align:center;}";
-    html += "form{max-width:400px;margin:0 auto;text-align:left;}";
-    html += "input,select{width:100%;padding:10px;margin:5px 0 15px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;box-sizing:border-box;}";
-    html += "button{width:100%;padding:12px;background:#0f0;color:#000;font-weight:bold;border:none;border-radius:4px}</style></head><body>";
-    html += "<h2>COLYFLOR Setup</h2><form method='POST' action='/save' accept-charset='UTF-8'>";
-    html += "<label>WiFi SSID</label><input type='text' name='s' list='wifis' autocomplete='off' required>";
-    html += "<datalist id='wifis'>" + wifiOptions + "</datalist>";
-    html += "<label>WiFi Password</label><input type='password' name='p'>";
-    html += "<input type='hidden' id='iana_tz' name='iana_tz'>";
-    html += "<label>OpenWeather API Key</label><input type='text' name='k' required>";
-    html += "<label>City Name</label><input type='text' name='c' required>";
-    html += "<label>Unit</label><select name='u'><option value='C' selected>&deg;C (Celsius)</option><option value='F'>&deg;F (Fahrenheit)</option></select>";
-    html += "<button type='submit'>Save & Restart</button></form></body></html>";
-    server.send(200, "text/html", html);
+    server.sendContent("</datalist>");
+    server.sendContent("<label>WiFi Password</label><input type='password' name='p'>");
+    server.sendContent("<input type='hidden' id='iana_tz' name='iana_tz'>");
+    server.sendContent("<label>OpenWeather API Key</label><input type='text' name='k' required>");
+    server.sendContent("<label>City Name</label><input type='text' name='c' required>");
+    server.sendContent("<label>Unit</label><select name='u'><option value='C' selected>&deg;C (Celsius)</option><option value='F'>&deg;F (Fahrenheit)</option></select>");
+    server.sendContent("<button type='submit'>Save & Restart</button></form></body></html>");
+    server.sendContent("");
   });
   
   server.on("/save", HTTP_POST, []() {
@@ -482,15 +472,15 @@ void startCaptivePortal() {
     }
   });
   
+  server.on("/logo.bmp", HTTP_GET, serveLogoBmp);
+
   // Also enable the standard web console during setup mode
   server.on("/console", [](){
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "text/html; charset=utf-8", "");
     String part1 = "<html><head><meta charset=\"UTF-8\"><meta http-equiv='refresh' content='30'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;text-align:center}pre{height:70vh;overflow-y:scroll;border:1px solid #222;padding:10px;text-align:left;white-space:pre-wrap}input{width:100%;background:#111;color:#0f0;border:1px solid #0f0;padding:10px;margin-top:10px}.logo{width:80px;height:80px;margin-bottom:10px}</style>";
-    part1 += "<script>window.onload=function(){var p=document.getElementById('log');p.scrollTop=p.scrollHeight;}</script></head><body><img src='";
+    part1 += "<script>window.onload=function(){var p=document.getElementById('log');p.scrollTop=p.scrollHeight;}</script></head><body><img src='/logo.bmp' class='logo'><h2>CONSOLE v" + String(CURRENT_VERSION) + " (Setup)</h2><pre id='log'>";
     server.sendContent(part1);
-    server.sendContent(logoDataUri);
-    server.sendContent("' class='logo'><h2>CONSOLE v" + String(CURRENT_VERSION) + " (Setup)</h2><pre id='log'>");
     server.sendContent(webLog);
     server.sendContent("</pre><form action='/cmd' method='POST' accept-charset=\"UTF-8\"><input name='c' placeholder='Type command...' autofocus autocomplete='off'></form></body></html>");
     server.sendContent("");
@@ -512,6 +502,12 @@ void startCaptivePortal() {
     // Handle scheduled actions since we are trapped in this loop and won't return to the main loop().
     if (pendingReboot && (millis() - actionTimer >= 1500)) ESP.restart();
     if (pendingReset && (millis() - actionTimer >= 1500)) { prefs.clear(); ESP.restart(); }
+    if (pendingRecover && (millis() - actionTimer >= 1500)) {
+      pendingRecover = false;
+      actionTimer = 0;
+      weatherFailStreak = 1;
+      performNetworkRecovery(weatherFailStreak, true);
+    }
     delay(10); 
   }
 }
@@ -604,6 +600,7 @@ bool runDeepProbe() {
   logMsg("PROBE: Executing network diagnostics...");
   IPAddress p1, p2, p3;
   bool d1 = WiFi.hostByName("api.openweathermap.org", p1);
+  yield();
   if (d1) {
     String newIp = p1.toString();
     if (newIp != "0.0.0.0" && newIp != openWeatherIp) {
@@ -613,9 +610,12 @@ bool runDeepProbe() {
     }
   }
   bool d2 = WiFi.hostByName("www.colyflor.com", p2);
+  yield();
   bool d3 = WiFi.hostByName("worldtimeapi.org", p3);
+  yield();
   WiFiClient c; c.setTimeout(1500);
   bool t = c.connect("1.1.1.1", 80); c.stop();
+  yield();
   
   if (!d1) logMsg("PROBE: CRITICAL -> OpenWeatherMap DNS failed.");
   if (!t)  logMsg("PROBE: CRITICAL -> TCP routing to 1.1.1.1 failed.");
@@ -685,7 +685,13 @@ void runOTA(bool force) {
       logMsg("OTA: Manifest Request -> HTTP " + String(code));
       
       if (code == 200) {
-        DynamicJsonDocument doc(2048); deserializeJson(doc, http.getStream());
+        DynamicJsonDocument doc(2048);
+        DeserializationError err = deserializeJson(doc, http.getStream());
+        if (err) {
+          logMsg("OTA: ERROR -> Manifest JSON parse failed.");
+          http.end();
+          return;
+        }
         nV = doc["version"] | "0.0"; 
         binUrl = doc["url"] | "";
         hash = doc["bin_hash"] | "N/A"; 
@@ -757,7 +763,7 @@ void runOTA(bool force) {
             uint32_t dlStart = millis();
             
             while (remaining > 0 && httpBin.connected()) {
-              if (millis() - dlStart > 120000) { // 2 min max
+              if (millis() - dlStart > 300000) { // 5 min max
                 logMsg("OTA: TIMEOUT -> Download stalled.");
                 writeError = true; 
                 break;
@@ -825,7 +831,7 @@ void syncTime() {
   while (time(nullptr) < 100000 && millis() - start < 10000) delay(100);
   struct tm ti;
   if (getLocalTime(&ti)) {
-     char b[32]; strftime(b, 32, "%H:%M:%S %Y:%m:%d", &ti); logMsg("NTP: OK " + String(b)); updateBacklight();
+     char b[32]; strftime(b, 32, "%H:%M:%S %Y-%m-%d", &ti); logMsg("NTP: OK " + String(b)); updateBacklight();
   } else { logMsg("NTP: FAILED."); }
 }
 
@@ -833,6 +839,8 @@ bool updateWeather(bool draw) {
   if (lat == "" || lon == "") return false;
   
   String apiUnit = (tempUnit == "F") ? "imperial" : "metric";
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
   String host = "api.openweathermap.org";
   String url;
@@ -864,12 +872,12 @@ bool updateWeather(bool draw) {
 
   execute_request:
   if (apiVer == "3.0") {
-    url = "http://" + host + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
+    url = "https://" + host + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
   } else {
-    url = "http://" + host + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
+    url = "https://" + host + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
   }
 
-  http.begin(url);
+  http.begin(client, url);
   http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
   int code = http.GET();
   
@@ -878,12 +886,12 @@ bool updateWeather(bool draw) {
     http.end();
     
     if (apiVer == "3.0") {
-      url = "http://" + openWeatherIp + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
+      url = "https://" + openWeatherIp + "/data/3.0/onecall?lat=" + lat + "&lon=" + lon + "&exclude=minutely,daily&units=" + apiUnit + "&appid=" + apiKey;
     } else {
-      url = "http://" + openWeatherIp + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
+      url = "https://" + openWeatherIp + "/data/2.5/forecast?lat=" + lat + "&lon=" + lon + "&units=" + apiUnit + "&appid=" + apiKey;
     }
     
-    http.begin(url);
+    http.begin(client, url);
     http.addHeader("Host", host);
     http.addHeader("User-Agent", String("COLYFLOR-Weather/") + CURRENT_VERSION);
     code = http.GET();
@@ -898,9 +906,16 @@ bool updateWeather(bool draw) {
   }
 
   if (code == 200) {
-    weatherFailStreak = 0; 
     DynamicJsonDocument doc(24576); 
-    deserializeJson(doc, http.getStream());
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    if (err) {
+      logMsg("API: ERROR -> JSON parse failed: " + String(err.c_str()));
+      http.end();
+      weatherFailStreak++;
+      performNetworkRecovery(weatherFailStreak, false);
+      return false;
+    }
+    weatherFailStreak = 0; 
     
     struct tm ti; 
     if (getLocalTime(&ti)) { 
@@ -1071,7 +1086,7 @@ void pCmd(String in) {
     logMsg("clear     - Clear terminal history");
   }
   else if (lowIn == "status") {
-    bool netOk = runDeepProbe();
+    bool netOk = (WiFi.status() == WL_CONNECTED);
     nvs_stats_t n; nvs_get_stats(NULL, &n);
     int pct = (n.total_entries > 0) ? (n.used_entries * 100) / n.total_entries : 0;
     struct tm ti; getLocalTime(&ti); char b[32]; strftime(b, 32, "%H:%M:%S %Y-%m-%d", &ti);
@@ -1376,7 +1391,6 @@ void setup() {
   Serial.println("***************************************\n");
   
   loadPreferences();
-  logoDataUri = generateLogoDataURI();
   if (apiKey.length() != 32) { showBootStatus("API Fail"); prefs.clear(); isSetupMode = true; }
   if (isSetupMode) startCaptivePortal();
   
@@ -1395,18 +1409,16 @@ void setup() {
   showBootStatus("Loading Weather..."); updateWeather(false); 
   server.on("/", HTTP_GET, [](){ server.sendHeader("Location", "/console"); server.send(301); });
 
+  server.on("/logo.bmp", HTTP_GET, serveLogoBmp);
+
   server.on("/console", [](){
     // Use chunked transfer to avoid building a massive string in memory, which can cause heap allocation failures.
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "text/html; charset=utf-8", "");
 
     String part1 = "<html><head><meta charset=\"UTF-8\"><meta http-equiv='refresh' content='30'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;text-align:center}pre{height:70vh;overflow-y:scroll;border:1px solid #222;padding:10px;text-align:left;white-space:pre-wrap}input{width:100%;background:#111;color:#0f0;border:1px solid #0f0;padding:10px;margin-top:10px}.logo{width:80px;height:80px;margin-bottom:10px}</style>";
-    part1 += "<script>window.onload=function(){var p=document.getElementById('log');p.scrollTop=p.scrollHeight;}</script></head><body><img src='";
+    part1 += "<script>window.onload=function(){var p=document.getElementById('log');p.scrollTop=p.scrollHeight;}</script></head><body><img src='/logo.bmp' class='logo'><h2>CONSOLE v" + String(CURRENT_VERSION) + "</h2><pre id='log'>";
     server.sendContent(part1);
-
-    server.sendContent(logoDataUri);
-
-    server.sendContent("' class='logo'><h2>CONSOLE v" + String(CURRENT_VERSION) + "</h2><pre id='log'>");
     server.sendContent(webLog);
     server.sendContent("</pre><form action='/cmd' method='POST' accept-charset=\"UTF-8\"><input name='c' placeholder='Type command...' autofocus autocomplete='off'></form></body></html>");
 

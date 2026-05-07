@@ -2,6 +2,21 @@
 
 All notable changes to the COLYFLOR Weather Station project will be documented in this file.
 
+## [2.1] - 2026-04-30
+### Security
+- **API Encryption:** Upgraded all OpenWeatherMap API and Geocoding requests to use HTTPS, preventing the user's API key from being transmitted in plaintext across local networks.
+
+### Fixed
+- **Memory Optimization:** Replaced the Base64 data URI generation for the web console logo with a chunked HTTP stream (`/logo.bmp`), reducing peak heap allocation by over 140 KB and freeing ~57 KB of permanent global memory.
+- **JSON Error Handling:** Added explicit `DeserializationError` validation to `updateWeather()` and `geocodeCity()` to prevent silent crashes and unhandled null array access when the OpenWeather API returns truncated or malformed responses.
+- **Captive Portal Recovery:** Fixed an issue where the `recover` command was silently ignored while the device was running in setup mode.
+- **Alert Truncation Warning:** Added a console warning when government weather alerts exceed the 30-line (5-page) maximum display limit to explicitly notify users of truncated text.
+- **Non-Blocking Diagnostics:** Added `yield()` calls to the `runDeepProbe()` sequence and removed it from the standard `status` command to prevent the display and web server from freezing during DNS resolution or TCP timeouts.
+- **Captive Portal Optimization:** Transitioned the setup mode web server to use chunked transfer encoding, eliminating large string concatenations and preventing severe heap fragmentation.
+- **Code Cleanup:** Removed shadowed variable declarations in the URL encoding function to resolve compiler warnings and improve code clarity.
+- **Log Date Formatting:** Standardized the date format in `syncTime` to use hyphens (`%Y-%m-%d`) instead of colons for consistency with the rest of the system logs.
+- **OTA JSON Validation:** Added explicit `DeserializationError` checking to the OTA manifest fetch to safely abort the update process if the server returns invalid JSON (e.g., an HTML error page).
+
 ## [2.0] - 2026-04-25
 ### Security
 - **Secure OTA Validation:** Replaced `HTTPUpdate` with a custom stream loop to incrementally compute the SHA-256 hash during download. The update is now aborted before the boot partition switches if the binary's hash does not strictly match the ECDSA-verified manifest, preventing MITM firmware injection.
